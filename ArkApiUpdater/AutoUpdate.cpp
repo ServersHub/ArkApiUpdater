@@ -82,6 +82,22 @@ void AutoUpdate::RemoveOldDll(const std::string& CurrentDir)
 	remove((CurrentDir + "\\version.dll.old").c_str());
 }
 
+bool AutoUpdate::CreateAPIDirs(const std::string& BaseDir)
+{
+	try
+	{
+		if (!CreateDirectoryA((BaseDir + "\\ArkApi").c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
+		if (!CreateDirectoryA((BaseDir + "\\ArkApi\\Plugins").c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
+
+		return true;
+	}
+	catch (const std::exception& e)
+	{
+		LOGERROR(e.what());
+		return false;
+	}
+}
+
 bool AutoUpdate::CreateAutoUpdateDirs(const std::string& BaseDir)
 {
 	try
@@ -283,9 +299,15 @@ void AutoUpdate::Run(HMODULE hModule)
 
 	RemoveOldDll(CurrentDir);
 
+	if (!CreateAPIDirs(CurrentDir))
+	{
+		LOGERROR("Failed to create API directories");
+		return;
+	}
+
 	if (!CreateAutoUpdateDirs(CurrentDir))
 	{
-		LOGERROR("Failed to create directories");
+		LOGERROR("Failed to create AutoUpdate directories");
 		return;
 	}
 

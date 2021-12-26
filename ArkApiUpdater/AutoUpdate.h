@@ -21,6 +21,7 @@ private:
 	std::string GetDownloadURL(const nlohmann::json Data);
 	std::string GetCurrentDir();
 	void RemoveOldDll(const std::string& CurrentDir);
+	bool CreateAPIDirs(const std::string& BaseDir);
 	bool CreateAutoUpdateDirs(const std::string& BaseDir);
 	bool DownloadLatestRelease(const std::string& DownloadURL);
 	void MoveUpdateFile(const std::string& FileName, const std::string& CurrentDir);
