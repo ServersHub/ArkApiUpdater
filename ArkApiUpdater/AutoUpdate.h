@@ -9,17 +9,27 @@ public:
 	static AutoUpdate& Get();
 	void Run(HMODULE hModule);
 private:
+	bool Enabled_;
+	bool UseBeta_;
 	std::string TempDirPath_;
 	std::string VersionDirPath_;
 	std::string LocalReleaseTag_;
+	std::string LocalBranchName_;
 	bool RebootRequired_ = false;
 	unsigned int UpdatedFiles_ = 0;
 
+	struct RepoData
+	{
+		std::string ReleaseTag;
+		std::string DownloadURL;
+	};
+
 	void OpenConsole();
-	nlohmann::json GetRepoData();
-	std::string GetReleaseTag(const nlohmann::json Data);
-	std::string GetDownloadURL(const nlohmann::json Data);
 	std::string GetCurrentDir();
+	bool ReadConfig(const std::string& CurrentDir);
+	std::string GetBranchName();
+	nlohmann::json GetRepoData();
+	bool ParseRepoData(const nlohmann::ordered_json& Data, const std::string& BranchName, AutoUpdate::RepoData& RepoData);
 	void RemoveOldDll(const std::string& CurrentDir);
 	bool CreateAPIDirs(const std::string& BaseDir);
 	bool CreateAutoUpdateDirs(const std::string& BaseDir);
@@ -27,7 +37,7 @@ private:
 	void MoveUpdateFile(const std::string& FileName, const std::string& CurrentDir);
 	bool ShouldUpdate(const std::string& FileName, const std::string& CurrentDir);
 	bool UpdateFiles(const std::string& CurrentDir);
-	bool WriteNewManifest(const std::string& ReleaseTag);
+	bool WriteNewManifest(const std::string& ReleaseTag, const std::string& BranchName);
 	void DeleteTempFiles();
 	void RelaunchServer(const std::string& CurrentDir);
 };

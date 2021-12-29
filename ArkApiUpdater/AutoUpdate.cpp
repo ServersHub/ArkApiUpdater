@@ -24,15 +24,60 @@ void AutoUpdate::OpenConsole()
 	freopen_s(&p_cout, "conout$", "w", stdout);
 }
 
+std::string AutoUpdate::GetCurrentDir()
+{
+	char Buffer[MAX_PATH];
+	GetModuleFileNameA(NULL, Buffer, MAX_PATH);
+
+	const std::string::size_type Pos = std::string(Buffer).find_last_of("\\/");
+
+	return std::string(Buffer).substr(0, Pos);
+}
+
+bool AutoUpdate::ReadConfig(const std::string& CurrentDir)
+{
+	try
+	{
+		std::fstream Config;
+
+		Config.open(CurrentDir + "\\auto_update_config.json", std::fstream::in);
+
+		if (!Config) return false;
+
+		nlohmann::json JsonConf;
+		Config >> JsonConf;
+
+		if (JsonConf.is_null()) return false;
+
+		Enabled_ = JsonConf["Enabled"].get<bool>();
+		UseBeta_ = JsonConf["UsingBeta"].get<bool>();
+
+		return true;
+	}
+	catch (const std::exception& e)
+	{
+		LOGERROR(e.what());
+		return false;
+	}
+
+	return false;
+}
+
+std::string AutoUpdate::GetBranchName()
+{
+	if (UseBeta_) return "beta";
+	else return "master";
+}
+
 nlohmann::json AutoUpdate::GetRepoData()
 {
 	try
 	{
-		const std::string res = Requests::Get().CreateGetRequest("https://api.github.com/repos/Michidu/ARK-Server-API/releases/latest");
+		const std::string res = Requests::Get().CreateGetRequest("https://api.github.com/repos/Michidu/ARK-Server-API/releases");
 
 		if (!res.empty())
 		{
-			return nlohmann::json::parse(res);
+			return nlohmann::ordered_json::parse(res);
 		}
 	}
 	catch (const std::exception& e)
@@ -43,38 +88,34 @@ nlohmann::json AutoUpdate::GetRepoData()
 	return nlohmann::json();
 }
 
-std::string AutoUpdate::GetReleaseTag(const nlohmann::json Data)
+bool AutoUpdate::ParseRepoData(const nlohmann::ordered_json& Data, const std::string& BranchName, AutoUpdate::RepoData& RepoData)
 {
-	if (!Data.is_null())
+	try
 	{
-		if (Data.find("tag_name") != Data.end()) return Data["tag_name"].get<std::string>();
-	}
-
-	return std::string();
-}
-
-std::string AutoUpdate::GetDownloadURL(const nlohmann::json Data)
-{
-	if (!Data.is_null())
-	{
-		for (const auto& iter : Data["assets"])
+		for (const auto& iter : Data)
 		{
-			if (iter.find("browser_download_url") != iter.end())
-				return iter["browser_download_url"].get<std::string>();
+			if (iter["target_commitish"].get<std::string>() == BranchName)
+			{
+				RepoData.ReleaseTag = iter["tag_name"].get<std::string>();
+				for (const auto& asset : iter["assets"])
+				{
+					if (asset.find("browser_download_url") != asset.end())
+					{
+						RepoData.DownloadURL = asset["browser_download_url"].get<std::string>();
+						break;
+					}
+				}
+
+				if (!RepoData.ReleaseTag.empty() && !RepoData.DownloadURL.empty()) return true;
+			}
 		}
 	}
+	catch (const std::exception& e)
+	{
+		LOGERROR(e.what());
+	}
 
-	return std::string();
-}
-
-std::string AutoUpdate::GetCurrentDir()
-{
-	char Buffer[MAX_PATH];
-	GetModuleFileNameA(NULL, Buffer, MAX_PATH);
-
-	const std::string::size_type Pos = std::string(Buffer).find_last_of("\\/");
-
-	return std::string(Buffer).substr(0, Pos);
+	return false;
 }
 
 void AutoUpdate::RemoveOldDll(const std::string& CurrentDir)
@@ -123,7 +164,11 @@ bool AutoUpdate::CreateAutoUpdateDirs(const std::string& BaseDir)
 			nlohmann::json JsonConf;
 			VersionConfig >> JsonConf;
 
-			if (!JsonConf.is_null() && JsonConf.find("ReleaseTag") != JsonConf.end()) LocalReleaseTag_ = JsonConf["ReleaseTag"].get<std::string>();
+			if (!JsonConf.is_null() && JsonConf.find("ReleaseTag") != JsonConf.end())
+			{
+				if (JsonConf.find("ReleaseTag") != JsonConf.end()) LocalReleaseTag_ = JsonConf["ReleaseTag"].get<std::string>();
+				if (JsonConf.find("BranchName") != JsonConf.end()) LocalBranchName_ = JsonConf["BranchName"].get<std::string>();
+			}
 		}
 
 		VersionConfig.close();
@@ -215,12 +260,13 @@ bool AutoUpdate::UpdateFiles(const std::string& CurrentDir)
 	return true;
 }
 
-bool AutoUpdate::WriteNewManifest(const std::string& ReleaseTag)
+bool AutoUpdate::WriteNewManifest(const std::string& ReleaseTag, const std::string& BranchName)
 {
 	try
 	{
 		nlohmann::json Manifest;
 		Manifest["ReleaseTag"] = ReleaseTag;
+		Manifest["BranchName"] = BranchName;
 
 		std::fstream VersionConfig;
 		VersionConfig.open(VersionDirPath_, std::fstream::out | std::fstream::trunc);
@@ -279,21 +325,48 @@ void AutoUpdate::Run(HMODULE hModule)
 
 	LOGINFO("Starting automatic update process");
 
-	const nlohmann::json RepoData = GetRepoData();
-	const std::string DownloadURL = GetDownloadURL(RepoData);
-	const std::string ReleaseTag = GetReleaseTag(RepoData);
-
-	if (DownloadURL.empty() || ReleaseTag.empty())
-	{
-		LOGERROR("Could not obtain download data");
-		return;
-	}
-
 	const std::string CurrentDir = GetCurrentDir();
 
 	if (CurrentDir.empty())
 	{
 		LOGERROR("Failed to read directory");
+		return;
+	}
+
+	if (!ReadConfig(CurrentDir))
+	{
+		LOGERROR("Failed to read config");
+		return;
+	}
+
+	if (!Enabled_)
+	{
+		LOGINFO("AutoUpdate is disabled, skipping update");
+		return;
+	}
+
+	if (UseBeta_)
+	{
+		LOGINFO("Beta ArkApi downloads are enabled");
+	}
+
+	const nlohmann::json RepoData = GetRepoData();
+
+	const std::string BranchName = GetBranchName();
+
+	AutoUpdate::RepoData ParsedData;
+	if (!ParseRepoData(RepoData, BranchName, ParsedData))
+	{
+		LOGERROR("Could not parse repo data");
+		return;
+	}
+
+	const std::string DownloadURL = ParsedData.DownloadURL;
+	const std::string ReleaseTag = ParsedData.ReleaseTag;
+
+	if (DownloadURL.empty() || ReleaseTag.empty())
+	{
+		LOGERROR("Could not obtain download data");
 		return;
 	}
 
@@ -311,7 +384,7 @@ void AutoUpdate::Run(HMODULE hModule)
 		return;
 	}
 
-	if (LocalReleaseTag_ == ReleaseTag)
+	if (LocalReleaseTag_ == ReleaseTag && LocalBranchName_ == BranchName)
 	{
 		LOGINFO("Latest ArkApi version is installed, skipping update");
 		return;
@@ -329,7 +402,7 @@ void AutoUpdate::Run(HMODULE hModule)
 		return;
 	}
 
-	if (!WriteNewManifest(ReleaseTag))
+	if (!WriteNewManifest(ReleaseTag, BranchName))
 	{
 		LOGERROR("Failed to write new update version");
 		return;
