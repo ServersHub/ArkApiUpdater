@@ -43,6 +43,9 @@
     <None Include="d3d9.def">
       <Filter>Source Files</Filter>
     </None>
+    <None Include="auto_update_config.json">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ProxyLoader.h">

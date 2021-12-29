@@ -73,7 +73,7 @@ nlohmann::json AutoUpdate::GetRepoData()
 {
 	try
 	{
-		const std::string res = Requests::Get().CreateGetRequest("https://api.github.com/repos/Michidu/ARK-Server-API/releases");
+		const std::string& res = Requests::Get().CreateGetRequest("https://api.github.com/repos/Michidu/ARK-Server-API/releases");
 
 		if (!res.empty())
 		{
@@ -184,7 +184,7 @@ bool AutoUpdate::CreateAutoUpdateDirs(const std::string& BaseDir)
 
 bool AutoUpdate::DownloadLatestRelease(const std::string& DownloadURL)
 {
-	std::string FilePath = TempDirPath_ + "\\ArkApi.zip";
+	const std::string FilePath = TempDirPath_ + "\\ArkApi.zip";
 	return Requests::Get().DownloadFile(DownloadURL, FilePath);
 }
 
@@ -197,8 +197,8 @@ void AutoUpdate::MoveUpdateFile(const std::string& FileName, const std::string& 
 		RebootRequired_ = true;
 	}
 
-	std::string ExtractedFile = TempDirPath_ + "\\" + FileName;
-	std::string OldFile = CurrentDir + "\\" + FileName;
+	const std::string ExtractedFile = TempDirPath_ + "\\" + FileName;
+	const std::string OldFile = CurrentDir + "\\" + FileName;
 
 	remove(OldFile.c_str());
 	const auto res = rename(ExtractedFile.c_str(), OldFile.c_str());
@@ -213,8 +213,8 @@ void AutoUpdate::MoveUpdateFile(const std::string& FileName, const std::string& 
 
 bool AutoUpdate::ShouldUpdate(const std::string& FileName, const std::string& CurrentDir)
 {
-	const std::string CurrentFileHash = sw::sha512::file(CurrentDir + "\\" + FileName);
-	const std::string NewFileHash = sw::sha512::file(TempDirPath_ + "\\" + FileName);
+	const std::string& CurrentFileHash = sw::sha512::file(CurrentDir + "\\" + FileName);
+	const std::string& NewFileHash = sw::sha512::file(TempDirPath_ + "\\" + FileName);
 
 	return CurrentFileHash != NewFileHash;
 }
@@ -302,7 +302,7 @@ void AutoUpdate::RelaunchServer(const std::string& CurrentDir)
 
 	const DWORD PID = GetCurrentProcessId();
 
-	std::wstring WCurrentDir(CurrentDir.begin(), CurrentDir.end());
+	const std::wstring WCurrentDir(CurrentDir.begin(), CurrentDir.end());
 
 	STARTUPINFOW SI;
 	PROCESS_INFORMATION PI;
@@ -325,7 +325,7 @@ void AutoUpdate::Run(HMODULE hModule)
 
 	LOGINFO("Starting automatic update process");
 
-	const std::string CurrentDir = GetCurrentDir();
+	const std::string& CurrentDir = GetCurrentDir();
 
 	if (CurrentDir.empty())
 	{
@@ -350,9 +350,9 @@ void AutoUpdate::Run(HMODULE hModule)
 		LOGINFO("Beta ArkApi downloads are enabled");
 	}
 
-	const nlohmann::json RepoData = GetRepoData();
+	const nlohmann::json& RepoData = GetRepoData();
 
-	const std::string BranchName = GetBranchName();
+	const std::string& BranchName = GetBranchName();
 
 	AutoUpdate::RepoData ParsedData;
 	if (!ParseRepoData(RepoData, BranchName, ParsedData))
@@ -361,8 +361,8 @@ void AutoUpdate::Run(HMODULE hModule)
 		return;
 	}
 
-	const std::string DownloadURL = ParsedData.DownloadURL;
-	const std::string ReleaseTag = ParsedData.ReleaseTag;
+	const std::string& DownloadURL = ParsedData.DownloadURL;
+	const std::string& ReleaseTag = ParsedData.ReleaseTag;
 
 	if (DownloadURL.empty() || ReleaseTag.empty())
 	{

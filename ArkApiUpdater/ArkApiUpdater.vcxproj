@@ -157,6 +157,12 @@
       <ModuleDefinitionFile>d3d9.def</ModuleDefinitionFile>
       <AdditionalDependencies>libcrypto.lib;libssl.lib;IPHLPAPI.lib;Ws2_32.lib;crypt32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /Y $(ProjectDir)auto_update_config.json  $(OutDir)auto_update_config.json</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Copy Config File</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="AutoUpdate.cpp" />
@@ -169,6 +175,7 @@
     <MASM Include="d3d9.asm" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="auto_update_config.json" />
     <None Include="d3d9.def" />
   </ItemGroup>
   <ItemGroup>
