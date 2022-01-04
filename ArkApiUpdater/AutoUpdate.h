@@ -28,7 +28,7 @@ private:
 	std::string GetCurrentDir();
 	bool ReadConfig(const std::string& CurrentDir);
 	std::string GetBranchName();
-	nlohmann::json GetRepoData();
+	nlohmann::ordered_json GetRepoData();
 	bool ParseRepoData(const nlohmann::ordered_json& Data, const std::string& BranchName, AutoUpdate::RepoData& RepoData);
 	void RemoveOldDll(const std::string& CurrentDir);
 	bool CreateAPIDirs(const std::string& BaseDir);

@@ -69,7 +69,7 @@ std::string AutoUpdate::GetBranchName()
 	else return "master";
 }
 
-nlohmann::json AutoUpdate::GetRepoData()
+nlohmann::ordered_json AutoUpdate::GetRepoData()
 {
 	try
 	{
@@ -85,7 +85,7 @@ nlohmann::json AutoUpdate::GetRepoData()
 		LOGERROR(e.what());
 	}
 
-	return nlohmann::json();
+	return nlohmann::ordered_json();
 }
 
 bool AutoUpdate::ParseRepoData(const nlohmann::ordered_json& Data, const std::string& BranchName, AutoUpdate::RepoData& RepoData)
@@ -355,7 +355,7 @@ void AutoUpdate::Run(HMODULE hModule)
 		LOGINFO("Beta ArkApi downloads are enabled");
 	}
 
-	const nlohmann::json& RepoData = GetRepoData();
+	const nlohmann::ordered_json& RepoData = GetRepoData();
 
 	const std::string& BranchName = GetBranchName();
 
