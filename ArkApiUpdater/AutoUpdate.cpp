@@ -73,7 +73,7 @@ nlohmann::json AutoUpdate::GetRepoData()
 {
 	try
 	{
-		const std::string& res = Requests::Get().CreateGetRequest("https://api.github.com/repos/Michidu/ARK-Server-API/releases");
+		const std::string& res = Requests::Get().CreateGetRequest("https://api.github.com/repos/Michidu/ARK-Server-API/releases", { "user-agent:ArkApi AutoUpdate" });
 
 		if (!res.empty())
 		{
@@ -298,25 +298,30 @@ void AutoUpdate::DeleteTempFiles()
 void AutoUpdate::RelaunchServer(const std::string& CurrentDir)
 {
 	LOGINFO("This update requires a server reboot, rebooting in 5 seconds...");
-	Sleep(5000);
 
-	const DWORD PID = GetCurrentProcessId();
+	Sleep(5000);
 
 	const std::wstring WCurrentDir(CurrentDir.begin(), CurrentDir.end());
 
 	STARTUPINFOW SI;
 	PROCESS_INFORMATION PI;
 
-	ZeroMemory(&SI, sizeof SI);
-	SI.cb = sizeof SI;
-	ZeroMemory(&PI, sizeof PI);
+	ZeroMemory(&SI, sizeof(SI));
+	SI.cb = sizeof(SI);
+	ZeroMemory(&PI, sizeof(PI));
 
-	CreateProcessW((WCurrentDir + LR"(\ShooterGameServer.exe)").c_str(), GetCommandLineW(), nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr, nullptr, &SI, &PI);
+	if (!CreateProcessW((WCurrentDir + LR"(\ShooterGameServer.exe)").c_str(), GetCommandLineW(), nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr, nullptr, &SI, &PI))
+	{
+		LOGERROR("Failed to Create New Process");
+		return;
+	}
+
+	Sleep(1000);
 
 	CloseHandle(PI.hProcess);
 	CloseHandle(PI.hThread);
 
-	system(("taskkill /PID " + std::to_string(PID)).c_str());
+	exit(EXIT_SUCCESS);
 }
 
 void AutoUpdate::Run(HMODULE hModule)
@@ -363,12 +368,6 @@ void AutoUpdate::Run(HMODULE hModule)
 
 	const std::string& DownloadURL = ParsedData.DownloadURL;
 	const std::string& ReleaseTag = ParsedData.ReleaseTag;
-
-	if (DownloadURL.empty() || ReleaseTag.empty())
-	{
-		LOGERROR("Could not obtain download data");
-		return;
-	}
 
 	RemoveOldDll(CurrentDir);
 

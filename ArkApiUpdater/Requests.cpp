@@ -29,24 +29,21 @@ std::string Requests::CreateGetRequest(const std::string& url, std::vector<std::
 {
 	std::string Result = "";
 	Poco::Net::HTTPResponse response(Poco::Net::HTTPResponse::HTTP_BAD_REQUEST);
-	Poco::Net::HTTPClientSession* session = nullptr;
 
 	try
 	{
-		Poco::Net::HTTPRequest request = this->ConstructRequest(url, session, headers, Poco::Net::HTTPRequest::HTTP_GET);
+		RequestData data = this->ConstructRequest(url, headers, Poco::Net::HTTPRequest::HTTP_GET);
 
-		request.set("user-agent", "ArkApi AutoUpdate");
+		auto& request = data.Request;
+		auto& session = data.Session;
 
 		session->sendRequest(request);
-		Result = this->GetResponse(session, response);
+		Result = this->GetResponse(session.get(), response);
 	}
 	catch (const Poco::Exception& exc)
 	{
 		Log::GetLog()->error(exc.displayText());
 	}
-
-	delete session;
-	session = nullptr;
 
 	return Result;
 }
@@ -60,12 +57,10 @@ bool Requests::DownloadFile(const std::string& DownloadURL, const std::string& D
 
 		Poco::URI uri(DownloadURL);
 
-		auto DownloadStream = Poco::URIStreamOpener::defaultOpener().open(uri);
-		Poco::StreamCopier::copyStream(*DownloadStream, FileStream);
-		FileStream.close();
+		std::unique_ptr<std::istream> pStream(Poco::URIStreamOpener::defaultOpener().open(uri));
 
-		delete DownloadStream;
-		DownloadStream = nullptr;
+		Poco::StreamCopier::copyStream(*pStream.get(), FileStream);
+		FileStream.close();
 	}
 	catch (const Poco::Exception& exc)
 	{
@@ -98,17 +93,18 @@ std::string Requests::GetResponse(Poco::Net::HTTPClientSession* session, Poco::N
 	return result;
 }
 
-Poco::Net::HTTPRequest Requests::ConstructRequest(const std::string& url, Poco::Net::HTTPClientSession*& session,
-	const std::vector<std::string>& headers, const std::string& request_type)
+Requests::RequestData Requests::ConstructRequest(const std::string& url, const std::vector<std::string>& headers, const std::string& request_type)
 {
+	RequestData data;
+
 	Poco::URI uri(url);
 
 	const std::string& path(uri.getPathAndQuery());
-
+	
 	if (uri.getScheme() == "https")
-		session = new Poco::Net::HTTPSClientSession(uri.getHost(), uri.getPort());
+		data.Session = std::make_unique<Poco::Net::HTTPSClientSession>(uri.getHost(), uri.getPort());
 	else
-		session = new Poco::Net::HTTPClientSession(uri.getHost(), uri.getPort());
+		data.Session = std::make_unique<Poco::Net::HTTPClientSession>(uri.getHost(), uri.getPort());
 
 	Poco::Net::HTTPRequest request(request_type, path, Poco::Net::HTTPMessage::HTTP_1_1);
 
@@ -118,10 +114,18 @@ Poco::Net::HTTPRequest Requests::ConstructRequest(const std::string& url, Poco::
 		{
 			const std::string& key = header.substr(0, header.find(":"));
 			const std::string& data = header.substr(header.find(":") + 1);
-
-			request.add(key, data);
+			
+			if (request.has(key))
+			{
+				request.set(key, data);
+			}
+			else
+			{
+				request.add(key, data);
+			}
 		}
 	}
 
-	return request;
+	data.Request = request;
+	return data;
 }

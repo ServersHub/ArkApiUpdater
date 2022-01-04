@@ -27,8 +27,13 @@ public:
 	bool DownloadFile(const std::string& DownloadURL, const std::string& DownloadPath);
 
 private:
+	struct RequestData
+	{
+		Poco::Net::HTTPRequest Request;
+		std::unique_ptr<Poco::Net::HTTPClientSession> Session;
+	};
+
 	std::string GetResponse(Poco::Net::HTTPClientSession* session, Poco::Net::HTTPResponse& response);
 
-	Poco::Net::HTTPRequest ConstructRequest(const std::string& url, Poco::Net::HTTPClientSession*& session,
-		const std::vector<std::string>& headers, const std::string& request_type);
+	RequestData ConstructRequest(const std::string& url, const std::vector<std::string>& headers, const std::string& request_type);
 };
