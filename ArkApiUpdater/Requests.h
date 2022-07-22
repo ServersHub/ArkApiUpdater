@@ -24,7 +24,7 @@ public:
 	static Requests& Get();
 
 	std::string CreateGetRequest(const std::string& url, std::vector<std::string> headers = {});
-	bool DownloadFile(const std::string& DownloadURL, const std::string& DownloadPath);
+	std::unique_ptr<std::istream> DownloadFile(const std::string& DownloadURL);
 
 private:
 	struct RequestData

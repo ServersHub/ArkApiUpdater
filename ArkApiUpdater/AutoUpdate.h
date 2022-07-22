@@ -11,7 +11,6 @@ public:
 private:
 	bool Enabled_;
 	bool UseBeta_;
-	std::string TempDirPath_;
 	std::string VersionDirPath_;
 	std::string LocalReleaseTag_;
 	std::string LocalBranchName_;
@@ -33,11 +32,13 @@ private:
 	void RemoveOldDll(const std::string& CurrentDir);
 	bool CreateAPIDirs(const std::string& BaseDir);
 	bool CreateAutoUpdateDirs(const std::string& BaseDir);
-	bool DownloadLatestRelease(const std::string& DownloadURL);
-	void MoveUpdateFile(const std::string& FileName, const std::string& CurrentDir);
-	bool ShouldUpdate(const std::string& FileName, const std::string& CurrentDir);
-	bool UpdateFiles(const std::string& CurrentDir);
+	std::unique_ptr<std::istream> DownloadFile(const std::string& DownloadURL);
+	bool PermissionsInstallRequired(const std::string& PermissionsDir);
+	bool InstallPermissions(const std::string& PermissionsDir, const std::unique_ptr<std::istream> FileData);
+	void WriteFile(void* Zip, const std::string& ZipFileName, const std::string& ExtractDir, const std::string& ExtractFileName, const bool CheckExisting);
+	bool ShouldUpdate(const std::string& FileName, const std::string& CurrentDir, const std::string& NewFileData);
+	bool UpdateFiles(const std::string& CurrentDir, const std::unique_ptr<std::istream> FileData);
 	bool WriteNewManifest(const std::string& ReleaseTag, const std::string& BranchName);
-	void DeleteTempFiles();
 	void RelaunchServer(const std::string& CurrentDir);
+	void PrintUpdateInfo();
 };

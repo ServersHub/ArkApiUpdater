@@ -48,27 +48,23 @@ std::string Requests::CreateGetRequest(const std::string& url, std::vector<std::
 	return Result;
 }
 
-bool Requests::DownloadFile(const std::string& DownloadURL, const std::string& DownloadPath)
+std::unique_ptr<std::istream> Requests::DownloadFile(const std::string& DownloadURL)
 {
 	try
 	{
-		std::ofstream FileStream;
-		FileStream.open(DownloadPath, std::ios::out | std::ios::trunc | std::ios::binary);
-
 		Poco::URI uri(DownloadURL);
 
 		std::unique_ptr<std::istream> pStream(Poco::URIStreamOpener::defaultOpener().open(uri));
 
-		Poco::StreamCopier::copyStream(*pStream.get(), FileStream);
-		FileStream.close();
+		return pStream;
 	}
 	catch (const Poco::Exception& exc)
 	{
 		Log::GetLog()->error(exc.displayText());
-		return false;
+		return std::unique_ptr<std::istream>(nullptr);
 	}
 
-	return true;
+	return std::unique_ptr<std::istream>(nullptr);
 }
 
 std::string Requests::GetResponse(Poco::Net::HTTPClientSession* session, Poco::Net::HTTPResponse& response)

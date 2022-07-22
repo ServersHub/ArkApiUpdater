@@ -1,15 +1,22 @@
 #include "AutoUpdate.h"
 #include "Requests.h"
 #include "Logger.h"
-#include "zip_file.hpp"
 #include "sha512.hh"
 #include <fstream>
 #include <locale>
 #include <codecvt>
 #include <filesystem>
+#include <memory>
+#include "zip_file.hpp"
 
 #define LOGINFO(Data) Log::GetLog()->info(Data)
 #define LOGERROR(Data) Log::GetLog()->error(Data)
+
+const std::string G_API_DOWNLOAD_URL = "https://api.github.com/repos/ServersHub/Framework-ArkServerApi/releases";
+const std::string G_PERMISSIONS_DOWNLOAD_URL = "https://gameservershub.com/forums/resources/ark-permissions.20/download?DLSkipPass=kw5@3KxM2q$8Qu0Tga";
+
+const std::string G_PERMISSIONS_UPDATE_FILES[] = { "PluginInfo.json", "Permissions.pdb", "Permissions.dll", "config.json" };
+const std::string G_API_UPDATE_FILES[] = { "config.json", "msdia140.dll", "version.dll", "version.pdb" };
 
 AutoUpdate& AutoUpdate::Get()
 {
@@ -73,7 +80,7 @@ nlohmann::ordered_json AutoUpdate::GetRepoData()
 {
 	try
 	{
-		const std::string& res = Requests::Get().CreateGetRequest("https://api.github.com/repos/Michidu/ARK-Server-API/releases", { "user-agent:ArkApi AutoUpdate" });
+		const std::string& res = Requests::Get().CreateGetRequest(G_API_DOWNLOAD_URL, { "user-agent:ArkApi AutoUpdate" });
 
 		if (!res.empty())
 		{
@@ -144,10 +151,8 @@ bool AutoUpdate::CreateAutoUpdateDirs(const std::string& BaseDir)
 	try
 	{
 		if (!CreateDirectoryA((BaseDir + "\\ArkApi_AutoUpdate").c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
-		if (!CreateDirectoryA((BaseDir + "\\ArkApi_AutoUpdate\\Temp").c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
 		if (!CreateDirectoryA((BaseDir + "\\ArkApi_AutoUpdate\\Version").c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
 
-		TempDirPath_ = BaseDir + "\\ArkApi_AutoUpdate\\Temp";
 		VersionDirPath_ = BaseDir + "\\ArkApi_AutoUpdate\\Version\\Version.json";
 
 		std::fstream VersionConfig;
@@ -182,72 +187,122 @@ bool AutoUpdate::CreateAutoUpdateDirs(const std::string& BaseDir)
 	}
 }
 
-bool AutoUpdate::DownloadLatestRelease(const std::string& DownloadURL)
+std::unique_ptr<std::istream> AutoUpdate::DownloadFile(const std::string& DownloadURL)
 {
-	const std::string FilePath = TempDirPath_ + "\\ArkApi.zip";
-	return Requests::Get().DownloadFile(DownloadURL, FilePath);
-}
+	std::unique_ptr<std::istream> DlData = Requests::Get().DownloadFile(DownloadURL);
 
-void AutoUpdate::MoveUpdateFile(const std::string& FileName, const std::string& CurrentDir)
-{
-	if (FileName == "version.dll")
+	if (!DlData)
 	{
-		const std::string BaseStr = CurrentDir + "\\";
-		rename((BaseStr + "version.dll").c_str(), (BaseStr + "version.dll.old").c_str());
-		RebootRequired_ = true;
+		LOGERROR("Failed to download file");
 	}
 
-	const std::string ExtractedFile = TempDirPath_ + "\\" + FileName;
-	const std::string OldFile = CurrentDir + "\\" + FileName;
+	return DlData;
+}
 
-	remove(OldFile.c_str());
-	const auto res = rename(ExtractedFile.c_str(), OldFile.c_str());
-
-	if (res == 0)
+bool AutoUpdate::PermissionsInstallRequired(const std::string& PermissionsDir)
+{
+	try
 	{
-		LOGINFO("Sucesfully updated: " + FileName);
+		if (!std::filesystem::exists(PermissionsDir)) return true;
+	}
+	catch (const std::exception& e)
+	{
+		LOGERROR(e.what());
+		return false;
+	}
+
+	return false;
+}
+
+bool AutoUpdate::InstallPermissions(const std::string& PermissionsDir, const std::unique_ptr<std::istream> FileData)
+{
+	try
+	{
+		if (!FileData) return false;
+
+		if (!CreateDirectoryA((PermissionsDir).c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
+
+		miniz_cpp::zip_file File(*FileData.get());
+
+		const std::string ZipBase = "Permissions/";
+
+		for (const auto& UpdateFile : G_PERMISSIONS_UPDATE_FILES)
+		{
+			WriteFile(&File, ZipBase + UpdateFile, PermissionsDir, UpdateFile,false);
+		}
+	}
+	catch (const std::exception& e)
+	{
+		LOGERROR(e.what());
+		return false;
+	}
+
+	return true;
+}
+
+void AutoUpdate::WriteFile(void* Zip, const std::string& ZipFileName, const std::string& ExtractDir, const std::string& ExtractFileName, const bool CheckExisting)
+{
+	try
+	{
+		miniz_cpp::zip_file* ZipFile = static_cast<miniz_cpp::zip_file*>(Zip);
+
+		if (CheckExisting && !ShouldUpdate(ExtractFileName, ExtractDir, ZipFile->read(ZipFileName))) return;
+
+		if (ExtractFileName == "version.dll")
+		{
+			const std::string BaseStr = ExtractDir + "\\";
+
+			rename((BaseStr + "version.dll").c_str(), (BaseStr + "version.dll.old").c_str());
+
+			RebootRequired_ = true;
+		}
+
+		const std::string ExtractedFilePath = ExtractDir + "\\" + ExtractFileName;
+
+		std::fstream File;
+		File.open(ExtractedFilePath, std::ios::binary | std::ios::out);
+
+		File << ZipFile->open(ZipFileName).rdbuf();
+
+		File.close();
+
+		LOGINFO("Sucesfully updated/installed: " + ExtractFileName);
 		UpdatedFiles_++;
 	}
-	else LOGERROR("Error updating: " + FileName + " Error code: " + std::to_string(res));
+	catch (const std::exception& e)
+	{
+		LOGERROR("Error updating: " + ExtractFileName + " Error description: " + e.what());
+	}
 }
 
-bool AutoUpdate::ShouldUpdate(const std::string& FileName, const std::string& CurrentDir)
+bool AutoUpdate::ShouldUpdate(const std::string& FileName, const std::string& CurrentDir, const std::string& NewFileData)
 {
 	const std::string& CurrentFileHash = sw::sha512::file(CurrentDir + "\\" + FileName);
-	const std::string& NewFileHash = sw::sha512::file(TempDirPath_ + "\\" + FileName);
+	const std::string& NewFileHash = sw::sha512::calculate(NewFileData);
 
 	return CurrentFileHash != NewFileHash;
 }
 
-bool AutoUpdate::UpdateFiles(const std::string& CurrentDir)
+bool AutoUpdate::UpdateFiles(const std::string& CurrentDir, const std::unique_ptr<std::istream> FileData)
 {
 	try
 	{
-		miniz_cpp::zip_file File(TempDirPath_ + "\\ArkApi.zip");
-		const std::string UpdateFiles[] = { "config.json", "msdia140.dll", "version.dll", "version.pdb" };
+		if (!FileData) return false;
 
-		for (const auto& UpdateFile : UpdateFiles)
+		miniz_cpp::zip_file File(*FileData.get());
+
+		for (const auto& UpdateFile : G_API_UPDATE_FILES)
 		{
 			if (UpdateFile == "config.json")
 			{
-				std::fstream ConfigFile;
-				ConfigFile.open(CurrentDir + "\\" + "config.json", std::fstream::in | std::fstream::out);
-
-				if (!ConfigFile && File.has_file(UpdateFile))
+				if (!std::filesystem::exists(CurrentDir + "\\" + "config.json"))
 				{
-					File.extract(UpdateFile, TempDirPath_);
-					MoveUpdateFile(UpdateFile, CurrentDir);
+					WriteFile(&File, UpdateFile, CurrentDir, UpdateFile, true);
 				}
-				else ConfigFile.close();
 			}
 			else
 			{
-				File.extract(UpdateFile, TempDirPath_);
-
-				if (ShouldUpdate(UpdateFile, CurrentDir))
-				{
-					MoveUpdateFile(UpdateFile, CurrentDir);
-				}
+				WriteFile(&File, UpdateFile, CurrentDir, UpdateFile, true);
 			}
 		}
 	}
@@ -287,14 +342,6 @@ bool AutoUpdate::WriteNewManifest(const std::string& ReleaseTag, const std::stri
 	return true;
 }
 
-void AutoUpdate::DeleteTempFiles()
-{
-	for (const auto& File : std::filesystem::directory_iterator(TempDirPath_))
-	{
-		std::filesystem::remove_all(File.path());
-	}
-}
-
 void AutoUpdate::RelaunchServer(const std::string& CurrentDir)
 {
 	LOGINFO("This update requires a server reboot, rebooting in 5 seconds...");
@@ -322,6 +369,12 @@ void AutoUpdate::RelaunchServer(const std::string& CurrentDir)
 	CloseHandle(PI.hThread);
 
 	exit(EXIT_SUCCESS);
+}
+
+void AutoUpdate::PrintUpdateInfo()
+{
+	if (UpdatedFiles_ > 0) LOGINFO("Update complete, " + std::to_string(UpdatedFiles_) + " x File(s) required an update or download");
+	else LOGINFO("Update complete, no files required updates");
 }
 
 void AutoUpdate::Run(HMODULE hModule)
@@ -383,19 +436,31 @@ void AutoUpdate::Run(HMODULE hModule)
 		return;
 	}
 
+	const std::string& PermissionsDir = CurrentDir + "\\ArkApi\\Plugins\\Permissions";
+
+	const bool PermInstallRequired = PermissionsInstallRequired(PermissionsDir);
+
+	if (PermInstallRequired)
+	{
+		LOGINFO("Permissions is not installed, downloading...");
+
+		if (!InstallPermissions(PermissionsDir, DownloadFile(G_PERMISSIONS_DOWNLOAD_URL)))
+		{
+			LOGERROR("Failed to install permissions files");
+			return;
+		}
+	}
+	else LOGINFO("Permissions is already installed, skipping Permissions installation");
+
 	if (LocalReleaseTag_ == ReleaseTag && LocalBranchName_ == BranchName)
 	{
-		LOGINFO("Latest ArkApi version is installed, skipping update");
+		if (PermInstallRequired) PrintUpdateInfo();
+
+		LOGINFO("Latest ArkApi version is installed, skipping ArkApi update");
 		return;
 	}
 
-	if (!DownloadLatestRelease(DownloadURL))
-	{
-		LOGERROR("Failed to download release files");
-		return;
-	}
-
-	if (!UpdateFiles(CurrentDir))
+	if (!UpdateFiles(CurrentDir, DownloadFile(DownloadURL)))
 	{
 		LOGERROR("Failed to unpack release files");
 		return;
@@ -407,10 +472,7 @@ void AutoUpdate::Run(HMODULE hModule)
 		return;
 	}
 
-	DeleteTempFiles();
-
-	if (UpdatedFiles_ > 0) LOGINFO("Update complete, " + std::to_string(UpdatedFiles_) + " x File(s) required an update");
-	else LOGINFO("Update complete, no files required updates");
+	PrintUpdateInfo();
 
 	if (RebootRequired_) RelaunchServer(CurrentDir);
 }
